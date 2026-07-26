@@ -1,0 +1,231 @@
+FortiGate Firewall Configuration & Security Documentation
+
+ 
+1. Executive Summary
+
+This document covers the complete FortiGate firewall configuration deployed as the central security gateway for the university network project. The FortiGate sits at the network perimeter between the Internet and two internal routers (R1 and R2), enforcing security policies, traffic inspection, QoS, VPN connectivity, and SIEM log forwarding to a Wazuh instance.
+The firewall is the only device in the topology capable of providing deep packet inspection, application-layer visibility, and intrusion prevention — capabilities that go beyond what standard ACLs on routers can offer.
+ 
+2. Network Topology Overview
+
+2.1 Physical Topology
+The FortiGate firewall connects to three segments:
+•	port1 (WAN): Connected to the Internet cloud via the PNetLab NAT interface.
+•	port2 (R1 side): Connected to Router R1, which serves the branch/faculty networks and the Wazuh SIEM server.
+•	port3 (R2 side): Connected to Router R2, which serves the three main university VLANs (Student, Management, Staff).
+
+2.2 Interface IP Addressing
+Interface	IP Address / Prefix	Connected To	Role
+port1	192.168.183.142/24	Internet (NAT Cloud)	WAN — Internet uplink
+port2	11.0.0.1/24	R1 (fa3/0 = 11.0.0.2)	Internal — Branch & SIEM side
+port3	12.0.0.1/24	R2 (fa4/0 = 12.0.0.2)	Internal — VLAN 40/50/60 side
+
+2.3 VLAN Addressing (Behind R2)
+VLAN ID	Role	Subnet	Gateway (R2 sub-interface)
+VLAN 40	Student	192.168.40.0/24	192.168.40.1 (fa0/0.40)
+VLAN 50	Management	192.168.50.0/24	192.168.50.1 (fa0/0.50)
+VLAN 60	Staff	192.168.60.0/24	192.168.60.1 (fa0/0.60)
+
+2.4 Other Key Hosts
+Host	IP Address	Location	Purpose
+Wazuh SIEM	10.10.10.15	Behind R1	Centralized log collection and alerting
+Windows Server	TBD	Behind R1	Domain services (IP pending assignment)
+Internet Gateway	192.168.183.2	VMware NAT	Default gateway for WAN port (VMware NAT .2)
+
+ 
+3. Routing Configuration
+
+3.1 FortiGate Static Routes
+The following static routes are configured on the FortiGate to ensure reachability to all internal subnets and the Internet:
+
+Destination	Gateway	Interface	Purpose
+0.0.0.0/0 (Default)	192.168.183.2	port1	Internet access (VMware NAT gateway)
+192.168.40.0/24	12.0.0.2	port3	Student VLAN — via R2
+192.168.50.0/24	12.0.0.2	port3	Management VLAN — via R2
+192.168.60.0/24	12.0.0.2	port3	Staff VLAN — via R2
+10.10.10.0/24	11.0.0.2	port2	Wazuh SIEM network — via R1
+192.168.10.0/24	11.0.0.2	port2	Branch Faculty 1 — via R1
+192.168.20.0/24	11.0.0.2	port2	Branch Faculty 2 — via R1
+192.168.30.0/24	11.0.0.2	port2	Branch Faculty 3 — via R1
+
+3.2 Router Default Routes
+Both internal routers point their default route toward the FortiGate to enable Internet access for all downstream hosts:
+
+R1:
+ip route 0.0.0.0 0.0.0.0 11.0.0.1
+R2:
+ip route 0.0.0.0 0.0.0.0 12.0.0.1
+
+3.3 Important Note: VMware NAT Gateway
+PNetLab is running in VMware NAT mode. In this mode, the correct Internet gateway is 192.168.183.2, not .1. Using .1 (the VMware host adapter address) will result in 100% packet loss to the Internet. This is a common misconfiguration in PNetLab VMware deployments.
+ 
+4. Firewall Policies
+
+FortiGate enforces a default-deny policy — all traffic is blocked unless explicitly permitted. Unlike a router ACL which only matches on IP/port, the FortiGate firewall policy is stateful and supports deep security profile binding.
+
+4.1 Internet Access Policy
+Field	Value
+Name	Internet_Access
+Incoming Interface	port2, port3
+Outgoing Interface	port1
+Source	All internal subnets (VLAN 40/50/60 + branch networks)
+Destination	all
+Service	ALL
+NAT	Enabled (required for Internet access via WAN IP)
+Action	Accept
+Log	All Sessions (forwarded to Wazuh via Syslog)
+Security Profiles	IPS, App Control, Web Filter, SSL Inspection (see Section 5)
+
+4.2 Wazuh Log Forwarding Policy
+A dedicated policy allows the FortiGate to send Syslog traffic to the Wazuh SIEM:
+Field	Value
+Incoming Interface	port1 (self-originated traffic)
+Outgoing Interface	port2
+Destination	10.10.10.15 (Wazuh)
+Service	UDP/514 (Syslog)
+NAT	Disabled
+Action	Accept
+
+ 
+5. Security Profiles
+
+Security Profiles are the key differentiator of a Next-Generation Firewall (NGFW) versus a traditional router ACL. They operate at Layer 7 (application layer) and can inspect the content of traffic — not just its source, destination, and port. Each profile is created independently and then bound to a Firewall Policy.
+
+5.1 Intrusion Prevention System (IPS)
+The IPS engine inspects traffic payloads against a database of known attack signatures (CVEs, exploits, buffer overflows, botnets, etc.) and blocks matching traffic before it reaches internal hosts. This capability does not exist in standard router ACLs.
+
+Profile: Ips-test
+Parameter	Value	Rationale
+Filter Type	Severity-based Filter	More efficient than selecting individual signatures
+Severity	High + Critical	Targets the most dangerous known exploits while avoiding false positives from Low/Medium
+Total Signatures Covered	~2,500+ out of 5,864	Covers all actively exploited vulnerabilities
+Action	Block	Drop and log matching traffic immediately
+Botnet C&C Scan	Enabled	Detects outbound connections to known Command & Control servers
+Packet Logging	Enabled	Captures evidence for forensic analysis in Wazuh
+
+5.2 Application Control
+Application Control identifies applications by their traffic behavior, not their port number. For example, it can identify BitTorrent traffic running over HTTPS port 443 and block it — something impossible with ACLs alone.
+Profile: AppCtrl-test
+Category	Action	Examples
+P2P	Block	BitTorrent, uTorrent, eMule
+Proxy / Tunnel	Block	UltraSurf, Psiphon, anonymizing proxies
+Social Media	Monitor	Facebook, TikTok, Instagram (logged only)
+Video Streaming	Monitor	YouTube, Netflix (logged for bandwidth analysis)
+Business Applications	Allow	Office 365, Google Workspace, Zoom
+
+5.3 Web Filtering
+Web Filtering uses the FortiGuard URL database to categorize and block entire categories of websites, regardless of IP address or domain name. This prevents students from accessing harmful or inappropriate content on the university network.
+Profile: WebFilter-test
+Category	Action	Justification
+Adult/Mature Content	Block	Inappropriate for academic environment
+Gambling	Block	Policy violation and potential legal liability
+Malicious Websites	Block	Malware distribution, phishing landing pages
+Phishing	Block	Credential harvesting sites
+Social Media	Monitor	Tracked for AUP compliance
+Educational Resources	Allow	Core academic requirement
+
+5.4 SSL/SSH Deep Inspection
+Over 80% of modern Internet traffic is encrypted via HTTPS/TLS. Without SSL Inspection, the IPS, Application Control, and Web Filter profiles are effectively blind to the actual content of HTTPS sessions. SSL Inspection performs a man-in-the-middle decryption within the firewall, inspects the cleartext, applies security profiles, and re-encrypts before forwarding.
+Profile: deep-inspection (built-in)
+Parameter	Value
+Mode	Full SSL Deep Inspection
+Certificate	Fortinet_CA_SSL (must be installed as Trusted Root on client devices)
+Untrusted Certificate Action	Block
+Expired Certificate Action	Block
+Bound to Policy	Internet_Access
+
+NOTE: Client devices must have the FortiGate CA certificate installed as a Trusted Root Certificate Authority. Without this, users will see browser certificate warnings on all HTTPS sites.
+ 
+6. Quality of Service (Traffic Shaping)
+
+Traffic Shaping (QoS) is implemented on the FortiGate to prioritize critical traffic types and prevent bandwidth monopolization by individual users or applications. This is particularly important in a university environment where a mix of academic, administrative, and recreational traffic competes for bandwidth.
+
+6.1 Traffic Shapers
+Shaper Name	Type	Configuration	Applied To
+Limited-Speed	Shared	Max: 2,000 Kbps	General student browsing traffic
+VoIP-Priority	Shared	Guaranteed: 512 Kbps, Priority: High	Voice/real-time communication traffic
+
+6.2 Why ACLs Cannot Do This
+Traditional router ACLs can only permit or deny traffic based on IP addresses and port numbers. They have no mechanism to guarantee bandwidth, set priority queues, or rate-limit specific traffic categories. FortiGate Traffic Shaping operates at the policy level and applies to matched flows in real time.
+ 
+7. VPN Configuration
+
+7.1 Site-to-Site IPsec VPN (Inter-University Connectivity)
+IPsec Site-to-Site VPN establishes a permanent encrypted tunnel between two FortiGate devices, effectively joining two physically separate university networks into a single logical network. No user authentication is required — the tunnel is maintained automatically between the two FortiGate devices.
+
+Parameter	University A (FortiGate A)	University B (FortiGate B)
+WAN IP	192.168.183.130	Assigned per deployment
+Local Subnets	Internal subnets of University A	Internal subnets of University B
+Remote Subnets	Subnets of University B	Subnets of University A
+IKE Version	IKEv2	IKEv2
+Pre-Shared Key	Matching key on both sides	Matching key on both sides
+Setup Method	IPsec Wizard (Site to Site > FortiGate)	Mirror configuration
+
+Critical Configuration Notes:
+•	Local and remote subnets must NOT overlap. Identical subnets on both sides will cause the IPsec Wizard to reject the configuration.
+•	NAT must be DISABLED on both tunnel Firewall Policies (inbound and outbound). Enabling NAT would change the source IP and break routing inside the tunnel.
+•	Two Firewall Policies are required per FortiGate: one for outbound traffic (internal → tunnel) and one for inbound traffic (tunnel → internal).
+•	A Static Route must be added on each FortiGate pointing the remote subnet via the tunnel interface, not a physical port.
+ 
+8. Wazuh SIEM Integration
+
+The FortiGate is configured to forward all security and traffic logs to a centralized Wazuh SIEM (Security Information and Event Management) instance. This enables real-time monitoring, alerting, and forensic analysis of all network events from a single dashboard.
+
+8.1 FortiGate Syslog Configuration
+The following CLI configuration enables Syslog forwarding from FortiGate to Wazuh:
+config log syslogd setting
+    set status enable
+    set server "10.10.10.15"
+    set port 514
+    set facility local7
+    set format default
+end
+
+8.2 Wazuh Receiver Configuration
+On the Wazuh Manager (10.10.10.15), the following block must be present in /var/ossec/etc/ossec.conf to enable Syslog ingestion:
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>udp</protocol>
+  <allowed-ips>0.0.0.0/0</allowed-ips>
+</remote>
+
+After editing the configuration, restart the Wazuh Manager service:
+systemctl restart wazuh-manager
+
+8.3 Events Visible in Wazuh
+Log Source	Events Captured
+IPS Profile	Blocked attack attempts, CVE matches, severity levels
+Application Control	Blocked/monitored application categories per user
+Web Filter	Blocked website categories, user attempts
+Firewall Policy	Allowed/denied connections, NAT translations, session counts
+VPN	SSL-VPN login attempts, IPsec tunnel up/down events
+Authentication	Admin login attempts to FortiGate GUI/CLI
+
+ 
+9. Key Lessons Learned & Troubleshooting Reference
+
+Issue	Root Cause	Solution
+FortiGate cannot reach Internet	Missing default route	Add static route 0.0.0.0/0 via VMware NAT gateway (.2, not .1)
+Ping to Internet fails even with route	PNetLab in VMware NAT mode uses .2 as gateway, not .1	Always use 192.168.183.2 as default gateway in VMware NAT topology
+Router cannot ping FortiGate	Duplicate default routes causing asymmetric routing	Remove the extra default route: no ip route 0.0.0.0 0.0.0.0 [wrong gateway]
+Router translates unknown commands to DNS	ip domain-lookup enabled by default on Cisco IOS	Run: no ip domain-lookup in global config
+SSL-VPN policy rejected	Split tunnel portal conflicts with destination 'all'	Set destination to specific internal subnet, not 'all'
+IPsec VPN conflict error	Local and remote subnets overlap	Ensure University B uses completely different subnets from University A
+NAT on VPN policy breaks tunnel	Source IP gets rewritten, routing fails inside tunnel	Always disable NAT on IPsec tunnel Firewall Policies
+port2/port3 no response	FortiGate blocks ping by default	Add 'ping' to allowaccess: set allowaccess ping https ssh
+
+ 
+10. Conclusion
+
+The FortiGate firewall serves as the intelligent security core of the university network. Unlike router-based Access Control Lists which can only match packets by IP address and port number, the FortiGate operates at the application layer and provides:
+
+•	Deep Packet Inspection via IPS and SSL Inspection — detecting hidden threats inside encrypted traffic.
+•	Application-layer visibility via Application Control — identifying and blocking specific applications regardless of port.
+•	Content-based access control via Web Filtering — enforcing acceptable use policies by website category.
+•	Bandwidth management via Traffic Shaping — guaranteeing quality for critical services.
+•	Secure remote and site-to-site connectivity via SSL-VPN and IPsec VPN.
+•	Centralized security monitoring via Wazuh SIEM integration through Syslog.
+
+All of the above capabilities represent the exclusive contribution of the FortiGate to the overall project security architecture, and cannot be replicated by the router ACL configurations implemented by other team members.
+
