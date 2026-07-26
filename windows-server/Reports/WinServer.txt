@@ -1,0 +1,417 @@
+# Windows Server 2016 — Comprehensive Implementation Summary
+
+---
+
+## 1. Server Identity & Environment
+
+| Parameter | Value |
+|---|---|
+| Server Hostname | WINSERVER |
+| Server IP Address | 30.0.0.20 |
+| Operating System | Windows Server 2016 |
+| Domain Name | uni.local |
+| Forest Functional Level | Windows Server 2016 |
+| Domain Functional Level | Windows Server 2016 |
+| Network (Management) | 192.168.183.128 (PNETLab access) |
+
+The server was deployed inside a virtualized lab environment running on PNETLab/QEMU, reachable at 192.168.183.128, and serves as the centralized Domain Controller, DNS Server, File Server, and Group Policy authority for the entire enterprise network.
+
+---
+
+## 2. Roles & Features Installed
+
+The following roles and features were installed through **Server Manager → Add Roles and Features**:
+
+| Role / Feature | Purpose |
+|---|---|
+| **Active Directory Domain Services (AD DS)** | Centralized identity, authentication, and policy management |
+| **DNS Server** | Internal name resolution and AD service location |
+| **File and Storage Services** | Centralized file sharing across departments |
+| **NPAS (Network Policy and Access Services)** | Network access control |
+| **Windows Server Backup** | System state backup and disaster recovery |
+
+All installed roles are visible in the Server Manager Dashboard, each showing a green **Manageability** indicator confirming no critical errors.
+
+---
+
+## 3. Active Directory Domain Services (AD DS)
+
+### 3.1 Domain Promotion
+
+After installing the AD DS role, the server was promoted to a **Domain Controller** for the new forest `uni.local`. During promotion:
+- **Forest and Domain Functional Level** were both set to Windows Server 2016.
+- The **DNS Server** option was enabled during promotion so the DC also acts as the primary DNS server.
+- A **DSRM (Directory Services Restore Mode)** password was configured for recovery scenarios.
+- The **NetBIOS domain name** was confirmed as UNI.
+
+### 3.2 Organizational Unit (OU) Structure
+
+Three top-level **Organizational Units** were created directly under the `Uni.local` domain root to mirror the university's department structure:
+
+| OU Name | Target Population |
+|---|---|
+| `uni_Student` | Student users and their workstations |
+| `uni_Staff` | Faculty/staff users and their workstations |
+| `uni_Management` | Administrative/management users and workstations |
+| `uni_Groups` | Security groups for RBAC |
+| `NetworkAdmin` | Network administration accounts |
+
+This OU design is the foundation of the entire security model — every Group Policy, every permission assignment, and every access control decision flows from which OU a user or computer object lives in.
+
+### 3.3 User Accounts
+
+User accounts were created inside their respective OUs. Each account was configured with:
+- A **username** following a naming convention (e.g., Student 1, Student 2, Student 3).
+- An **initial password** set by the administrator.
+- A **Description** field populated with the VLAN/department tag (e.g., "Vlan 10 | Students", "Vlan 40 | Students") for easy identification and auditing.
+- **Domain authentication**, allowing login from any domain-joined workstation.
+
+Confirmed user accounts visible in `uni_Student`:
+- Student 1 — Vlan 10 | Students
+- Student 2 — Vlan 10 | Students
+- Student 3 — Vlan 40 | Students
+
+### 3.4 Computer Accounts (Domain-Joined Workstations)
+
+The following Windows 10 client machines were joined to the `uni.local` domain and their computer objects were moved into the correct OUs:
+
+| Computer Name | Description | OU |
+|---|---|---|
+| DESKTOP-M65LJ28 | Management workstation | uni_Student / Management |
+| STUDENT | win_10.1 (Student) | uni_Student |
+| STUDENT-TWO-V10 | win_10.2 (Student) | uni_Student |
+
+Each machine was joined by going to **This PC → Properties → Change Settings → Domain → uni.local**, providing administrator credentials, and rebooting. After joining, the computer objects were moved from the default `Computers` container into the appropriate department OU so that the correct GPOs apply to them.
+
+---
+
+## 4. Security Groups (RBAC)
+
+Three **Global Security Groups** were created in the `uni_Groups` OU to implement **Role-Based Access Control (RBAC)** across the file server and all permission assignments:
+
+| Group Name | Members |
+|---|---|
+| `Students-GRP` | All student user accounts |
+| `Staff-GRP` | All staff/faculty user accounts |
+| `Management-GRP` | All management/admin user accounts |
+
+Permissions are assigned to **groups, not individual users**. This means adding or removing a user from a department only requires adding/removing them from the group — access is updated everywhere automatically.
+
+---
+
+## 5. DNS Server Configuration
+
+### 5.1 Forward Lookup Zone — uni.local
+
+The Forward Lookup Zone `uni.local` was created automatically during AD DS promotion. The following **Host (A) records** were configured, mapping hostnames to IP addresses:
+
+| Hostname | IP Address | Type | Notes |
+|---|---|---|---|
+| winserver | 30.0.0.20 | Host (A) — static | Domain Controller / DNS Server |
+| Student | 192.168.10.19 | Host (A) | Client workstation |
+| Student-one-Vlan10 | 192.168.10.19 | Host (A) | Student VLAN 10 |
+| Student-two-V10 | 192.168.10.18 | Host (A) | Student VLAN 10 |
+| DESKTOP-M65LJ28 | 192.168.40.19 | Host (A) | Management workstation |
+| Staff-1-V30 | 192.168.30.29 | Host (A) | Staff VLAN 30 |
+| Staff-2-V30 | 192.168.30.18 | Host (A) | Staff VLAN 30 |
+| Staff-3-V60 | 192.168.60.19 | Host (A) | Staff VLAN 60 |
+| Management-one-V20 | 192.168.20.19 | Host (A) | Management VLAN 20 |
+| Management-2-V20 | 192.168.20.18 | Host (A) | Management VLAN 20 |
+| Management-3-V50 | 192.168.50.29 | Host (A) | Management VLAN 50 |
+
+In addition, the **SOA (Start of Authority)** and **NS (Name Server)** records were automatically created and point to `winserver.uni.local`.
+
+### 5.2 Reverse Lookup Zone — 30.in-addr.arpa
+
+A Reverse Lookup Zone `30.in-addr.arpa` was manually created to allow **IP-to-hostname** resolution. A **Pointer (PTR) record** was configured mapping `30.0.0.20 → WinServer.Uni.local` (static). SOA and NS records were also automatically created in this zone.
+
+### 5.3 Client DNS Configuration
+
+Every client machine was configured to use the server's IP (`30.0.0.20`) as its **Primary DNS Server** in the network adapter's IPv4 properties, ensuring all domain name lookups are handled by the domain controller.
+
+---
+
+## 6. Centralized File Server
+
+### 6.1 Shared Folder Structure
+
+A parent shared folder named **"Uni Shared Folder"** was created on the server (located at `C:\Users\Administrator\Desktop\Uni Shared Folder`). Three department-specific sub-folders were created inside it:
+
+```
+Uni Shared Folder\
+├── Shared-Students\     (created 6/27/2026 1:58 PM)
+├── Shared-Staff\        (created 6/27/2026 1:58 PM)
+└── Shared-Management\   (created 6/27/2026 1:58 PM)
+```
+
+The parent folder was shared on the network as `\\30.0.0.20\Uni Shared Folder`, making all three sub-folders accessible to domain clients.
+
+### 6.2 NTFS (Security) Permissions
+
+NTFS permissions were configured on the folder via **Properties → Security tab** following the **Principle of Least Privilege**:
+
+| Principal | Permissions Granted |
+|---|---|
+| Authenticated Users | Read & Execute, List Folder Contents, Read |
+| SYSTEM | Full Control |
+| Administrator | Full Control |
+| Administrators (UNI\Administrators) | Full Control |
+
+For each department sub-folder (Shared-Students, Shared-Staff, Shared-Management), the corresponding security group (Students-GRP, Staff-GRP, Management-GRP) was granted access while inheritance from the parent was broken to ensure **strict isolation between departments**.
+
+### 6.3 Share (Network) Permissions
+
+Configured via **Properties → Sharing → Advanced Sharing → Permissions**:
+
+| Principal | Permissions |
+|---|---|
+| Authenticated Users | Full Control ✓, Change ✓, Read ✓ |
+
+The combination of Share Permissions (allowing all authenticated users through the network share) and NTFS Permissions (restricting access to the correct department group at the file-system level) provides the real enforcement — NTFS is always the stricter layer.
+
+### 6.4 Access Control Verification
+
+A **Student account** logged onto a client machine and navigated to `\\30.0.0.20\Uni Shared Folder`:
+- **Shared-Students** → Access granted ✓
+- **Shared-Staff** → Received the error: *"Windows cannot access \\30.0.0.20\Uni Shared Folder\Shared-Staff. You do not have permission to access..."* ✗
+
+This confirmed that NTFS permissions correctly enforced cross-department access isolation.
+
+---
+
+## 7. Group Policy Objects (GPO)
+
+All GPOs were created and linked through **Server Manager → Tools → Group Policy Management**. The procedure for every policy was:
+1. Right-click the target OU → **"Create a GPO in this domain, and Link it here…"**
+2. Name the GPO, then right-click it → **Edit** to open the Group Policy Management Editor.
+3. Navigate to the appropriate node (User Configuration or Computer Configuration) and enable the required setting.
+
+### 7.1 Students GPO — uni_Student OU (Most Restrictive)
+
+14 GPOs were created and linked to `uni_Student`, each targeting a specific restriction:
+
+| # | GPO Name | Policy Path | Setting Enabled |
+|---|---|---|---|
+| 1 | Close Control Panel | User Config → Admin Templates → Control Panel | Prohibit access to Control Panel and PC settings |
+| 2 | Prevent Registry editor | User Config → Admin Templates → System | Prevent access to registry editing tools |
+| 3 | Prevent access to Task Manager | User Config → Admin Templates → System → Ctrl+Alt+Del Options | Remove Task Manager |
+| 4 | No Wallpaper | User Config → Admin Templates → Desktop → Desktop | Desktop Wallpaper (path left blank) |
+| 5 | USB lock | Computer Config → Admin Templates → System → Removable Storage Access | All Removable Storage classes: Deny all access |
+| 6 | Hide Drivers | User Config → Admin Templates → Windows Components → File Explorer | Hide these specified drives in My Computer |
+| 7 | Can't change Password | User Config → Admin Templates → System → Ctrl+Alt+Del Options | Remove Change Password |
+| 8 | Prevent Access to shutdown | User Config → Admin Templates → System → Ctrl+Alt+Del Options | Remove Shut Down, Restart, Sleep, and Hibernate |
+| 9 | Hide Network | User Config → Admin Templates → Network → Network Connections | Prohibit access to properties of a LAN connection / hide Network icon |
+| 10 | Logon Banner | Computer Config → Policies → Windows Settings → Security Settings → Local Policies → Security Options | Interactive logon: Message title + Message text |
+| 11 | Prevent Access of date and time | User Config → Admin Templates → Control Panel | Hide Date and Time icon / prevent modification |
+| 12 | CMD | User Config → Admin Templates → System | Prevent access to the command prompt |
+| 13 | Logon Hours | Enforced both via per-user AD account settings AND a linked GPO | Restricts login to authorized working hours |
+| 14 | Close PowerShell | User Config → Admin Templates → System | Don't run specified Windows applications (powershell.exe) |
+
+**GPO Enforcement Confirmed:** A student account on a domain-joined machine attempted to open a restricted application and received the pop-up: *"Restrictions — This operation has been cancelled due to restrictions in effect on this computer. Please contact your system administrator."*
+
+### 7.2 Staff GPO — uni_Staff OU (Moderate Restrictions)
+
+8 GPOs linked to `uni_Staff`, balancing usability with security:
+
+| # | GPO Name | Setting |
+|---|---|---|
+| 1 | Can't change Password | Remove Change Password |
+| 2 | Close PowerShell | Block powershell.exe execution |
+| 3 | Close Control Panel | Prohibit access to Control Panel |
+| 4 | Logon Hours | Restrict login to authorized hours |
+| 5 | Prevent Registry editor | Prevent registry editing tools |
+| 6 | Prevent access to Task Manager | Remove Task Manager |
+| 7 | Hide Network | Hide Network settings |
+| 8 | Logon Banner | Security warning at login screen |
+
+### 7.3 Management GPO — uni_Management OU (Administrative Restrictions)
+
+7 GPOs linked to `uni_Management`:
+
+| # | GPO Name | Setting |
+|---|---|---|
+| 1 | Can't change Password | Remove Change Password |
+| 2 | Hide Network | Hide Network settings |
+| 3 | Logon Banner | Security warning at login screen |
+| 4 | USB lock | Deny all removable storage access |
+| 5 | Prevent Registry editor | Prevent registry editing tools |
+| 6 | Prevent Access of date and time | Prevent date/time modification |
+| 7 | Logon Hours | Restrict login to authorized hours |
+
+---
+
+## 8. Password Policy
+
+Configured under **Default Domain Policy → Computer Configuration → Windows Settings → Security Settings → Account Policies → Password Policy**:
+
+| Setting | Purpose |
+|---|---|
+| Enforce Password History | Prevents reusing recently used passwords |
+| Minimum Password Length | Enforces a minimum character count |
+| Password Must Meet Complexity Requirements | Requires uppercase, lowercase, digits, and symbols |
+| Maximum Password Age | Forces periodic password changes |
+
+---
+
+## 9. Account Lockout Policy
+
+Configured under **Default Domain Policy → Account Policies → Account Lockout Policy**:
+
+| Setting | Purpose |
+|---|---|
+| Account Lockout Threshold | Number of failed logon attempts before the account locks |
+| Account Lockout Duration | How long the account stays locked before auto-reset |
+| Reset Account Lockout Counter After | The time window for counting failed attempts |
+
+This policy directly mitigates **brute-force and password spraying attacks** by automatically locking accounts that receive too many wrong password attempts.
+
+---
+
+## 10. Security Logon Banner
+
+Configured via **Computer Configuration → Policies → Windows Settings → Security Settings → Local Policies → Security Options**:
+
+- **Interactive logon: Message title for users attempting to log on** → set to a warning title (e.g., "Authorized Users Only").
+- **Interactive logon: Message text for users attempting to log on** → set to a full warning message notifying users that the system is monitored and restricted to authorized personnel.
+
+This banner appears **before** the credential prompt on every domain-joined workstation, serving both as a legal notice and a security deterrent.
+
+---
+
+## 11. Logon Hours
+
+Logon hours were configured **per individual user account** via:
+**Active Directory Users and Computers → User Properties → Account tab → Logon Hours button**
+
+In the grid view (days of the week vs. hours of the day):
+- **Blue (Logon Permitted)** blocks were selected for working hours (Sunday through Thursday, specific hour ranges).
+- **White (Logon Denied)** blocks were left for off-hours (evenings, Friday, Saturday).
+
+This prevents users from logging onto the domain outside authorized working hours. The **"Logon Houres" GPO** was also linked to each OU to enforce this at the policy level in addition to the per-user setting.
+
+---
+
+## 12. Windows Security Auditing
+
+Advanced Audit Policies were enabled through **Group Policy Management Editor → Computer Configuration → Policies → Windows Settings → Security Settings → Advanced Audit Policy Configuration**:
+
+| Audit Category | What is Logged |
+|---|---|
+| Logon / Logoff | Every successful and failed logon/logoff event |
+| Account Management | User account creation, deletion, modification; group changes |
+| Object Access | File system access; file share access |
+| Policy Change | Changes to the audit policy itself or security settings |
+| Computer Account Management | Computer objects joining/leaving the domain |
+
+For file-system auditing to generate events, a **SACL (System Access Control List)** was also added to the shared folders via **Properties → Security → Advanced → Auditing**, specifying which access types (Read, Write, Delete) trigger audit log entries and for which users/groups.
+
+---
+
+## 13. Event Viewer — Security Log
+
+The **Windows Event Viewer** (Server Manager → Tools → Event Viewer → Windows Logs → Security) captures all configured audit events. The Security log at the time of review contained **147,041 recorded events**.
+
+Key Event IDs observed:
+
+| Event ID | Description |
+|---|---|
+| **4624** | An account was successfully logged on |
+| **4634** | An account was logged off |
+| **4656** | A handle to an object was requested (File System access) |
+| **5140** | A network share object was accessed (File Share) |
+
+Each event record includes: the date/time, the source (Microsoft Windows security auditing), the subject (user who performed the action), the target resource, and the outcome (Success/Failure).
+
+---
+
+## 14. Remote Desktop Protocol (RDP)
+
+RDP was enabled on the server via **This PC → Properties → Advanced System Settings → Remote tab**:
+- Selected **"Allow remote connections to this computer"**
+- Kept **Network Level Authentication (NLA)** enabled for pre-authentication security
+- Added authorized administrator accounts via **"Select Users…"**
+
+The Windows Firewall rule group **"Remote Desktop"** was automatically enabled on TCP port 3389, allowing inbound RDP sessions from authorized management machines.
+
+---
+
+## 15. Windows Server Backup
+
+### 15.1 Feature Installation
+
+The **Windows Server Backup** feature was installed through:
+**Server Manager → Add Roles and Features → Features → Windows Server Backup → Install**
+
+### 15.2 Backup Job Execution
+
+A manual backup job was executed using the **Backup Once Wizard** (wbadmin console → Actions → Backup Once):
+
+| Wizard Step | Choice Made |
+|---|---|
+| Backup Options | Different options (custom configuration) |
+| Select Backup Configuration | Custom → System State selected |
+| Specify Destination Type | Local drives |
+| Select Backup Destination | Drive M: |
+| Confirmation | Verified settings, clicked Backup |
+
+**Backup progress** was monitored live: the System state backup transferred approximately **7.17 GB** total, reaching completion successfully.
+
+### 15.3 Backup Result
+
+The **Windows Server Backup dashboard** (Local Backup view) confirmed:
+
+| Field | Value |
+|---|---|
+| Last Backup Status | **Successful ✓** |
+| Last Backup Time | 6/28/2026 9:12 PM |
+| Next Backup Status | Not scheduled (one-time backup) |
+
+### 15.4 Backup Files
+
+Navigating to the backup destination (`WinServer\Backup 2026-06-28 191233`) revealed **16 items**:
+- `4b701312-0000-0000-0000-501f00000000....` — **Hard Disk Image File (7,843,840 KB ≈ 7.48 GB)**
+- `BackupSpecs.xml` — Backup configuration descriptor
+- Multiple `dae4765e-5421-4c8c-adb1-c8961e3a31f0....xml` — Component writer metadata documents (2 KB–5,239 KB each)
+
+The Hard Disk Image File contains the full backup of the protected volumes and system state.
+
+---
+
+## 16. Network Topology Context
+
+The Windows Server sits at the center of a multi-VLAN enterprise network built in PNETLab:
+
+| VLAN | Subnet | Department |
+|---|---|---|
+| VLAN 10 | 192.168.10.0/24 | Students |
+| VLAN 20 | 192.168.20.0/24 | Management |
+| VLAN 30 | 192.168.30.0/24 | Staff |
+| VLAN 40 | 192.168.40.0/24 | (additional client segment) |
+| VLAN 50 | 192.168.50.0/24 | Management extension |
+| VLAN 60 | 192.168.60.0/24 | Staff extension |
+| VLAN 10 (GW) | 192.168.10.1 | Gateway |
+| Server subnet | 30.0.0.0/24 | Domain Controller |
+
+The network passes through a Gateway (192.168.10.1) with routing between VLANs managed by the network devices (switches and router visible in the PNETLab topology). The Windows Server at 30.0.0.20 is reachable from all VLANs for authentication, DNS, file access, and policy distribution.
+
+---
+
+## 17. Security Architecture Summary
+
+The overall security posture implemented on this server follows four layers:
+
+**Layer 1 — Identity & Access (AD DS)**
+Centralized authentication via Kerberos; all users must authenticate against the domain before accessing any resource. No local accounts are used for network resources.
+
+**Layer 2 — Endpoint Hardening (GPO)**
+14 policies on Students, 8 on Staff, 7 on Management — each progressively relaxed as privilege increases. Students have the most restricted desktop environment (no CMD, no PowerShell, no Control Panel, no USB, no registry). Staff and Management retain more usability but are still locked down on critical vectors (registry, task manager, PowerShell, USB for Management).
+
+**Layer 3 — Resource Access Control (NTFS + Share Permissions)**
+Every department folder is siloed — a user in Students-GRP cannot read, write, or even list the contents of Shared-Staff or Shared-Management. Access Denied is enforced at the NTFS layer, which cannot be bypassed even with share-level access.
+
+**Layer 4 — Monitoring & Auditing (Audit Policy + Event Viewer)**
+Every logon, logoff, account change, file access, and policy change is written to the Security event log. With 147,041+ events recorded, the audit trail provides full accountability and supports incident investigation.
+
+---
+
+*This summary covers all configurations implemented on the Windows Server 2016 Domain Controller based on the live environment screenshots and implementation records.*
