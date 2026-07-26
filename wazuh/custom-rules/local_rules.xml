@@ -1,0 +1,39 @@
+<!--
+  UniShield — Custom Wazuh Detection Rules
+  File: local_rules.xml
+  Deploy to: /var/ossec/etc/rules/local_rules.xml on the Wazuh Manager
+
+  After editing:
+    /var/ossec/bin/wazuh-analysisd -t        # validate syntax
+    systemctl restart wazuh-manager          # reload rules
+-->
+
+<!-- ============================================================
+     Rule 100110 — New User Account Detection
+     MITRE ATT&CK: T1136 (Create Account) — Persistence
+     Fires when /etc/passwd is modified (parent FIM rule 550),
+     indicating a new local Linux user account may have been created.
+     Tested with: sudo useradd attacker  →  410+ confirmed detections
+     ============================================================ -->
+<group name="custom_users">
+  <rule id="100110" level="10">
+    <if_sid>550</if_sid>
+    <match>/etc/passwd</match>
+    <description>New user account activity detected</description>
+  </rule>
+</group>
+
+<!-- ============================================================
+     Rule 100120 — Sudo Privilege Usage Detection
+     MITRE ATT&CK: T1548.003 (Sudo and Sudo Caching) — Privilege Escalation
+     Fires on any sudo-related syslog event, capturing username,
+     command executed, timestamp, and source endpoint.
+     Tested with: sudo cat /etc/shadow / sudo useradd testuser
+     → 410 hits confirmed in Wazuh Dashboard
+     ============================================================ -->
+<group name="custom_sudo">
+  <rule id="100120" level="10">
+    <if_group>syslog,sudo</if_group>
+    <description>Privileged command executed using sudo</description>
+  </rule>
+</group>

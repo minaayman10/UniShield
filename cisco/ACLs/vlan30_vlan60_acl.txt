@@ -1,0 +1,28 @@
+! ============================================================
+! UniShield — Access Control List Configuration
+! Extracted from: Chapter 5.2 — Access Control Lists
+! Purpose: Layer 3 inter-VLAN traffic filtering
+! ============================================================
+
+! ---- Router R1 — Protecting VLAN 30 (Faculty Staff) ----
+! R1# show run | section interface FastEthernet0/0.30
+interface FastEthernet0/0.30
+ encapsulation dot1Q 30
+ ip address 192.168.30.1 255.255.255.0
+ ip access-group 122 in
+
+! ---- Router R2 — Protecting VLAN 60 (Staff) ----
+! R2# show run | section interface FastEthernet0/0.60
+interface FastEthernet0/0.60
+ encapsulation dot1Q 60
+ ip address 192.168.60.1 255.255.255.0
+ ip access-group 111 in
+
+! ------------------------------------------------------------
+! ACL Application Summary (from Table 5.2)
+! ------------------------------------------------------------
+! ACL 111  | R2 | FastEthernet0/0.60 (in) | VLAN 60 - Staff
+!          -> Filters all outbound traffic from Staff segment before routing
+!
+! ACL 122  | R1 | FastEthernet0/0.30 (in) | VLAN 30 - Faculty Staff
+!          -> Filters all outbound traffic from Faculty Staff before routing

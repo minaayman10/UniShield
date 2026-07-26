@@ -1,0 +1,25 @@
+! ============================================================
+! UniShield — Port Security Configuration
+! Extracted from: Chapter 5.3 — Port Security (Sticky MAC Learning)
+! Device: FACULTY(1) Access Switch, Interface Ethernet0/2
+! ============================================================
+
+interface Ethernet0/2
+ switchport mode access
+ switchport access vlan 30
+ switchport port-security
+ switchport port-security violation restrict
+ switchport port-security mac-address sticky
+ switchport port-security mac-address sticky 0050.7966.681a
+ duplex auto
+
+! ------------------------------------------------------------
+! Notes:
+! - Violation mode set to "restrict": drops traffic from unauthorized
+!   MACs and logs the violation, without shutting the port down.
+! - Sticky MAC learning dynamically binds the first-seen MAC address
+!   to the port and adds it to the running configuration.
+! - Verified via live capture: multiple simultaneous port security
+!   violations were detected and logged during testing
+!   (see Table 5.5 in the full report / Wazuh screenshots).
+! ------------------------------------------------------------
