@@ -12,6 +12,14 @@ Graduation Project — Department of Electrical Engineering (Electronics & Commu
 
 ---
 
+## 🗺️ Network Topology
+
+![Network Topology](topology/University_Network_Topology.png)
+
+Full topology details, VLAN diagram, IP addressing, and architecture breakdown: **[topology/](topology/)**
+
+---
+
 ## 📖 Overview
 
 This project integrates five domains into one cohesive, defense-in-depth architecture:
@@ -23,21 +31,6 @@ This project integrates five domains into one cohesive, defense-in-depth archite
 5. **Identity Management** — Windows Server 2016 (AD DS, DNS, GPO)
 
 📄 **[Read the full 120-page project report →](docs/UniShield_Full_Report.pdf)**
-
----
-
-## 🗺️ Topology
-
-![Network Topology](topology/network_topology.png)
-
-| VLAN | Group          |
-|------|----------------|
-| 10, 20, 30 | Faculty Staff |
-| 40   | Students       |
-| 50   | Management     |
-| 60   | Staff          |
-
-More diagrams: [`topology/vlan_segmentation_diagram.png`](topology/vlan_segmentation_diagram.png) · [`topology/defense_in_depth.png`](topology/defense_in_depth.png)
 
 ---
 
@@ -62,9 +55,12 @@ UniShield/
 ├── docs/
 │   └── UniShield_Full_Report.pdf
 ├── topology/
-│   ├── network_topology.png
-│   ├── vlan_segmentation_diagram.png
-│   └── defense_in_depth.png
+│   ├── README.md
+│   ├── University_Network_Topology.png     # ⭐ full topology
+│   ├── VLAN_Segmentation.png
+│   ├── Network_Architecture.png            # simplified flow diagram
+│   ├── Defense_in_Depth.png
+│   └── IP_Addressing.pdf                   # full interface IP scheme
 ├── cisco/
 │   ├── ACLs/
 │   │   └── vlan30_vlan60_acl.txt          # real config, Ch. 5.2
@@ -96,7 +92,7 @@ UniShield/
 
 1. Install **VMware Workstation Pro 17** and **PNETLab** (community edition is sufficient).
 2. Import Cisco IOS images (c7200 / IOSv) matching version 15.2 into PNETLab.
-3. Build the topology per [`topology/network_topology.png`](topology/network_topology.png): 2 routers (R1, R2), access/distribution switches, 6 VLANs.
+3. Build the topology per [`topology/University_Network_Topology.png`](topology/University_Network_Topology.png): 2 routers (R1, R2), access/distribution switches, 6 VLANs.
 4. Deploy `FortiGate VM64-KVM` (FortiOS 7.0) as a separate VM, bridge it to PNETLab as the Internet-facing gateway.
 5. Deploy `Wazuh 4.9` on an Ubuntu 22.04 LTS VM; bridge it via VMware's Cloud0 network to receive Syslog from R1/R2.
 6. Apply the configs in [`cisco/ACLs/`](cisco/ACLs/) and [`cisco/PortSecurity/`](cisco/PortSecurity/) to the relevant interfaces.
