@@ -52,6 +52,7 @@ Screenshots: [`screenshots/wazuh/`](screenshots/wazuh/)
 ```
 UniShield/
 ├── README.md
+├── LESSONS_LEARNED.md
 ├── docs/
 │   └── UniShield_Full_Report.pdf
 ├── topology/
@@ -114,14 +115,11 @@ Cisco IOS 15.2 · FortiGate VM64-KVM (FortiOS 7.0) · Wazuh SIEM 4.9 · Ubuntu S
 
 Enterprise Networking · VLAN Design · Firewall Administration · SIEM Engineering · Detection Engineering · Blue Team Operations · MITRE ATT&CK Mapping · Windows Server Administration · Network Security
 
-## 🚧 Future Improvements
+## 🧠 Lessons Learned & Future Work
 
-- Dynamic routing (OSPF)
-- IPv6 implementation
-- WSUS centralized patch management
-- Windows Server Certificate Authority (PKI)
-- Wazuh File Integrity Monitoring + VirusTotal integration
-- High-availability firewall clustering
+Real issues hit during the build — VMware NAT gateway quirks, IPsec subnet conflicts, port security violation modes, and more — plus a prioritized roadmap for what's next:
+
+📄 **[Read the full Lessons Learned & Future Work →](LESSONS_LEARNED.md)**
 
 ---
 
